@@ -8,15 +8,13 @@ const Node = struct {
 };
 
 const LRUCache = struct {
-    const Self = @This();
-
     capacity: usize,
     cache: std.AutoHashMap(i32, *Node),
     head: *Node,
     tail: *Node,
     allocator: std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator, capacity: usize) !Self {
+    pub fn init(allocator: std.mem.Allocator, capacity: usize) !LRUCache {
         if (capacity == 0) return error.InvalidCapacity;
         
         const h = try allocator.create(Node);
@@ -35,7 +33,7 @@ const LRUCache = struct {
         
         const map = std.AutoHashMap(i32, *Node).init(allocator);
         
-        return Self{
+        return LRUCache{
             .capacity = capacity,
             .cache = map,
             .head = h,
@@ -44,9 +42,11 @@ const LRUCache = struct {
         };
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *LRUCache) void {
+        // Iterate through cache entries and destroy nodes
         var it = self.cache.iterator();
         while (it.next()) |entry| {
+            // In Zig 0.15.x, entry has .key_ptr and .value_ptr
             self.allocator.destroy(entry.value_ptr.*);
         }
         
@@ -63,7 +63,7 @@ const LRUCache = struct {
         node.next = null;
     }
 
-    fn addToHead(self: *Self, node: *Node) void {
+    fn addToHead(self: *LRUCache, node: *Node) void {
         node.next = self.head.next;
         node.prev = self.head;
         
@@ -71,12 +71,12 @@ const LRUCache = struct {
         self.head.next = node;
     }
 
-    fn moveToHead(self: *Self, node: *Node) void {
+    fn moveToHead(self: *LRUCache, node: *Node) void {
         removeNode(node);
         self.addToHead(node);
     }
 
-    fn removeLRU(self: *Self) void {
+    fn removeLRU(self: *LRUCache) void {
         const lru = self.tail.prev.?;
         
         removeNode(lru);
@@ -84,7 +84,7 @@ const LRUCache = struct {
         self.allocator.destroy(lru);
     }
 
-    pub fn get(self: *Self, key: i32) ?i32 {
+    pub fn get(self: *LRUCache, key: i32) ?i32 {
         if (self.cache.get(key)) |node| {
             self.moveToHead(node);
             return node.value;
@@ -92,13 +92,14 @@ const LRUCache = struct {
         return null;
     }
 
-    pub fn put(self: *Self, key: i32, value: i32) !void {
+    pub fn put(self: *LRUCache, key: i32, value: i32) !void {
         if (self.cache.get(key)) |node| {
             node.value = value;
             self.moveToHead(node);
             return;
         }
         
+        // Use .count() for Zig 0.15.x
         if (self.cache.count() >= self.capacity) {
             self.removeLRU();
         }
@@ -111,7 +112,7 @@ const LRUCache = struct {
         self.addToHead(new_node);
     }
 
-    pub fn debugPrint(self: *Self) void {
+    pub fn debugPrint(self: *LRUCache) void {
         std.debug.print("Cache (capacity={d}, size={d}): ", .{self.capacity, self.cache.count()});
         
         var current = self.head.next;
