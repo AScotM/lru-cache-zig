@@ -43,11 +43,11 @@ const LRUCache = struct {
     }
 
     pub fn deinit(self: *LRUCache) void {
-        // Iterate through cache entries and destroy nodes
-        var it = self.cache.iterator();
-        while (it.next()) |entry| {
-            // In Zig 0.15.x, entry has .key_ptr and .value_ptr
-            self.allocator.destroy(entry.value_ptr.*);
+        var it = self.cache.keyIterator();
+        while (it.next()) |key_ptr| {
+            if (self.cache.fetchRemove(key_ptr.*)) |kv| {
+                self.allocator.destroy(kv.value);
+            }
         }
         
         self.allocator.destroy(self.head);
@@ -56,6 +56,9 @@ const LRUCache = struct {
     }
 
     fn removeNode(node: *Node) void {
+        std.debug.assert(node.prev != null);
+        std.debug.assert(node.next != null);
+        
         node.prev.?.next = node.next;
         node.next.?.prev = node.prev;
         
@@ -78,6 +81,7 @@ const LRUCache = struct {
 
     fn removeLRU(self: *LRUCache) void {
         const lru = self.tail.prev.?;
+        std.debug.assert(lru != self.head);
         
         removeNode(lru);
         _ = self.cache.remove(lru.key);
@@ -99,7 +103,6 @@ const LRUCache = struct {
             return;
         }
         
-        // Use .count() for Zig 0.15.x
         if (self.cache.count() >= self.capacity) {
             self.removeLRU();
         }
