@@ -15,39 +15,49 @@ const LRUCache = struct {
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator, capacity: usize) !LRUCache {
-        if (capacity == 0) return error.InvalidCapacity;
-        
-        const h = try allocator.create(Node);
-        errdefer allocator.destroy(h);
-        h.* = .{ .key = 0, .value = 0, .prev = null, .next = null };
-        
-        const t = try allocator.create(Node);
-        errdefer {
-            allocator.destroy(h);
-            allocator.destroy(t);
+        if (capacity == 0) {
+            return error.CapacityZero;
         }
-        t.* = .{ .key = 0, .value = 0, .prev = null, .next = null };
         
-        h.next = t;
-        t.prev = h;
+        const head = try allocator.create(Node);
+        errdefer allocator.destroy(head);
+        head.* = .{
+            .key = 0,
+            .value = 0,
+            .prev = null,
+            .next = null,
+        };
         
-        const map = std.AutoHashMap(i32, *Node).init(allocator);
+        const tail = try allocator.create(Node);
+        errdefer {
+            allocator.destroy(head);
+            allocator.destroy(tail);
+        }
+        tail.* = .{
+            .key = 0,
+            .value = 0,
+            .prev = null,
+            .next = null,
+        };
+        
+        head.next = tail;
+        tail.prev = head;
+        
+        const cache = std.AutoHashMap(i32, *Node).init(allocator);
         
         return LRUCache{
             .capacity = capacity,
-            .cache = map,
-            .head = h,
-            .tail = t,
+            .cache = cache,
+            .head = head,
+            .tail = tail,
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *LRUCache) void {
-        var it = self.cache.keyIterator();
-        while (it.next()) |key_ptr| {
-            if (self.cache.fetchRemove(key_ptr.*)) |kv| {
-                self.allocator.destroy(kv.value);
-            }
+        var it = self.cache.iterator();
+        while (it.next()) |entry| {
+            self.allocator.destroy(entry.value_ptr.*);
         }
         
         self.allocator.destroy(self.head);
@@ -56,8 +66,9 @@ const LRUCache = struct {
     }
 
     fn removeNode(node: *Node) void {
-        std.debug.assert(node.prev != null);
-        std.debug.assert(node.next != null);
+        if (node.prev == null or node.next == null) {
+            return;
+        }
         
         node.prev.?.next = node.next;
         node.next.?.prev = node.prev;
@@ -81,7 +92,9 @@ const LRUCache = struct {
 
     fn removeLRU(self: *LRUCache) void {
         const lru = self.tail.prev.?;
-        std.debug.assert(lru != self.head);
+        if (lru == self.head) {
+            return;
+        }
         
         removeNode(lru);
         _ = self.cache.remove(lru.key);
@@ -109,14 +122,21 @@ const LRUCache = struct {
         
         const new_node = try self.allocator.create(Node);
         errdefer self.allocator.destroy(new_node);
-        new_node.* = .{ .key = key, .value = value, .prev = null, .next = null };
+        new_node.* = .{
+            .key = key,
+            .value = value,
+            .prev = null,
+            .next = null,
+        };
         
         try self.cache.put(key, new_node);
         self.addToHead(new_node);
     }
 
     pub fn debugPrint(self: *LRUCache) void {
-        std.debug.print("Cache (capacity={d}, size={d}): ", .{self.capacity, self.cache.count()});
+        std.debug.print("Cache (capacity={d}, size={d}): ", .{
+            self.capacity, self.cache.count()
+        });
         
         var current = self.head.next;
         while (current != null and current.? != self.tail) {
