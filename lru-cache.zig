@@ -43,7 +43,8 @@ const LRUCache = struct {
         head.next = tail;
         tail.prev = head;
         
-        const cache = std.AutoHashMap(i32, *Node).init(allocator);
+        var cache = std.AutoHashMap(i32, *Node).init(allocator);
+        errdefer cache.deinit();
         
         return LRUCache{
             .capacity = capacity,
@@ -65,52 +66,55 @@ const LRUCache = struct {
         self.cache.deinit();
     }
 
-    fn removeNode(node: *Node) void {
-        if (node.prev == null or node.next == null) {
-            return;
+    fn removeNode(self: *LRUCache, node: *Node) void {
+        _ = self;
+        if (node.prev) |prev| {
+            prev.next = node.next;
         }
-        
-        node.prev.?.next = node.next;
-        node.next.?.prev = node.prev;
+        if (node.next) |next| {
+            next.prev = node.prev;
+        }
         
         node.prev = null;
         node.next = null;
     }
 
     fn addToHead(self: *LRUCache, node: *Node) void {
-        node.next = self.head.next;
         node.prev = self.head;
+        node.next = self.head.next;
         
-        self.head.next.?.prev = node;
+        if (self.head.next) |next| {
+            next.prev = node;
+        }
         self.head.next = node;
     }
 
     fn moveToHead(self: *LRUCache, node: *Node) void {
-        removeNode(node);
+        self.removeNode(node);
         self.addToHead(node);
     }
 
     fn removeLRU(self: *LRUCache) void {
-        const lru = self.tail.prev.?;
+        const lru = self.tail.prev orelse return;
         if (lru == self.head) {
             return;
         }
         
-        removeNode(lru);
+        self.removeNode(lru);
         _ = self.cache.remove(lru.key);
         self.allocator.destroy(lru);
     }
 
     pub fn get(self: *LRUCache, key: i32) ?i32 {
-        if (self.cache.get(key)) |node| {
-            self.moveToHead(node);
-            return node.value;
-        }
-        return null;
+        const entry = self.cache.get(key) orelse return null;
+        const node = entry;
+        self.moveToHead(node);
+        return node.value;
     }
 
     pub fn put(self: *LRUCache, key: i32, value: i32) !void {
-        if (self.cache.get(key)) |node| {
+        const entry = self.cache.get(key);
+        if (entry) |node| {
             node.value = value;
             self.moveToHead(node);
             return;
@@ -139,8 +143,8 @@ const LRUCache = struct {
         });
         
         var current = self.head.next;
-        while (current != null and current.? != self.tail) {
-            const node = current.?;
+        while (current) |node| {
+            if (node == self.tail) break;
             std.debug.print("[{d}:{d}] ", .{node.key, node.value});
             current = node.next;
         }
@@ -150,7 +154,12 @@ const LRUCache = struct {
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+    defer {
+        const status = gpa.deinit();
+        if (status == .leak) {
+            std.debug.print("Memory leak detected\n", .{});
+        }
+    }
     const allocator = gpa.allocator();
     
     var cache = try LRUCache.init(allocator, 2);
