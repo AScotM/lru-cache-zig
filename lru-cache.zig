@@ -58,7 +58,8 @@ const LRUCache = struct {
     pub fn deinit(self: *LRUCache) void {
         var it = self.cache.iterator();
         while (it.next()) |entry| {
-            self.allocator.destroy(entry.value_ptr.*);
+            const node = entry.value_ptr.*;
+            self.allocator.destroy(node);
         }
         
         self.allocator.destroy(self.head);
@@ -106,8 +107,7 @@ const LRUCache = struct {
     }
 
     pub fn get(self: *LRUCache, key: i32) ?i32 {
-        const entry = self.cache.get(key) orelse return null;
-        const node = entry;
+        const node = self.cache.get(key) orelse return null;
         self.moveToHead(node);
         return node.value;
     }
@@ -213,4 +213,28 @@ pub fn main() !void {
     } else {
         std.debug.print("Get(4): miss\n", .{});
     }
+}
+
+test "LRUCache basic operations" {
+    const allocator = std.testing.allocator;
+    var cache = try LRUCache.init(allocator, 2);
+    defer cache.deinit();
+
+    try cache.put(1, 1);
+    try cache.put(2, 2);
+    try std.testing.expectEqual(@as(?i32, 1), cache.get(1));
+    
+    try cache.put(3, 3);
+    try std.testing.expectEqual(@as(?i32, null), cache.get(2));
+    try std.testing.expectEqual(@as(?i32, 3), cache.get(3));
+}
+
+test "LRUCache update existing key" {
+    const allocator = std.testing.allocator;
+    var cache = try LRUCache.init(allocator, 2);
+    defer cache.deinit();
+
+    try cache.put(1, 1);
+    try cache.put(1, 100);
+    try std.testing.expectEqual(@as(?i32, 100), cache.get(1));
 }
